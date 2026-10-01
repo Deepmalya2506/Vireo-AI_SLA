@@ -1,232 +1,95 @@
-# Vireo Audio — First-Response SLA Analyser
+# Vireo Audio | First-Response SLA Analysis
 
-## What this project does
+**A reproducible analysis and interactive dashboard for locating first-response SLA breaches, understanding when they occur, and identifying what Operations should investigate next.**
 
-This project analyses Vireo Audio support-ticket data to determine where first-response SLA breaches are concentrated, with emphasis on weekly trends, resolver shift, channel, team and agent context.
+First response means the first human agent reply. The SLA result is calculated deterministically from ticket data. An optional Groq-powered investigator can summarize a selected ticket's text, but it does not set or change SLA outcomes.
 
-The core SLA calculation is deterministic. The optional AI component is only used to investigate a selected ticket's free-text fields; it does **not** determine the SLA result.
+latest-release: [prod_02](https://github.com/Deepmalya2506/Vireo-AI_SLA/releases/tag/prod_02)
 
-## Business question
+## Executive summary
 
-Neha Kulkarni asked for a weekly breach report by agent and shift so the support team can focus operational follow-up.
+After removing migration duplicates, the supplied export contains **11,200 unique tickets** and **2,440 first-response breaches** (**21.79%**). The clearest concentration is in Tier-1 tickets created overnight: **65.72%** breached, compared with **9.27%** of non-night arrivals. This is a strong signal for investigation, not evidence that a specific shift, handoff, or agent caused a breach.
 
-## Policy rules implemented
+| Finding | Result |
+| --- | ---: |
+| Raw rows → canonical tickets | 11,816 → 11,200 |
+| Duplicate ticket IDs removed | 616 |
+| First-response breaches | 2,440 (21.79%) |
+| Tier-1 resolver breach rate: Morning / Day / Night | 32.25% / 8.54% / 10.59% |
+| Tier-1 arrival breach rate: Night / non-night | 65.72% / 9.27% |
+| Night-created Tier-1 tickets first answered during Morning | 83.18% |
 
-- Chat first response target: 15 minutes
-- Voice callback: 2 hours
-- Social: 4 hours
-- Email: 8 hours
-- SLA breach = first response later than target
-- Breaches are reported against the resolving agent
-- Tier-2 agents are not compared with Tier-1 on volume metrics
-- Shifts are defined in IST: Morning 06:00–14:00, Day 14:00–22:00, Night 22:00–06:00
-- Legacy CSAT `0` means no survey response and is treated as missing
+**Credit context:** 2,320 resolved or closed breached tickets correspond to **₹812,000** in credits in the supplied data. Separately, applying the observed overall rate to the stated operating volume of 650 tickets per week gives a **planning scenario of ₹644,312.50 per quarter** (650 × 13 × 21.79% × ₹350). This is a projection, not observed quarterly spend, and 650 tickets per week is not the sample's measured volume.
 
-## Data handling
+## What the dashboard covers
 
-The assessment pack contains personal/customer information, so the raw CSV files are intentionally **not committed to the public GitHub repository**.
+The Streamlit app presents six views:
 
-Place the assessment files in `data/`:
+- **Concentration:** breach contribution and rates by channel and operating group.
+- **Timing & handoffs:** arrival hour, creation shift, response shift, and cross-shift flow.
+- **Agents & teams:** resolver-attributed performance with Tier-1 comparisons kept separate from Tier-2.
+- **Trend:** weekly rates for monitoring patterns over time.
+- **Ticket investigator:** optional text-based context for one selected ticket.
+- **Validation:** structural checks, independent recomputation results, and the generated validation report.
 
-```text
-data/
-├── tickets.csv
-└── agents.csv
+The main question is operational: **where should Support Operations investigate first?** The data point toward overnight coverage and the Night-to-Morning response path. The export does not include complete queue-event history, so it cannot establish the cause of an individual delay.
+
+## How the analysis works
+
+- Duplicate `ticket_id` records are canonicalized, preferring the `helpdesk` row over `legacy_fd`.
+- Source timestamps are parsed as UTC and converted to IST for arrival, response, shift, and reporting views.
+- First-response targets are channel based: chat **15 minutes**, voice **120 minutes**, social **240 minutes**, and email **480 minutes**.
+- A breach means first response is **later than** the target; a response exactly at the target is not a breach.
+- Completed-ticket agent and shift reporting follows the effective-dated roster assignment of the resolving agent, as required by the stated policy.
+- Tier-1 is the comparable population for agent and shift rates; Tier-2 is not mixed into those comparisons.
+- Legacy CSAT values of `0` are treated as missing survey responses.
+
+## Data and privacy
+
+The current repository checkout includes the five source CSVs under `vireo_sla/data/`: `tickets.csv`, `agents.csv`, `orders.csv`, `customers.csv`, and `products.csv`. The pipeline requires this complete pack and also supports placing it in `vireo_sla/data/raw/`.
+
+These files contain customer and ticket information. Confirm authorization, repository visibility, and access controls before sharing or redistributing the repository. The optional investigator sends selected ticket context to Groq after basic email and phone-pattern redaction; that pattern-based redaction is not a guarantee of anonymization. Use the feature only when permitted by your data-handling requirements.
+
+Generated artifacts are written to `vireo_sla/outputs/` when the pipeline runs. That directory is ignored by Git and is not needed as a separate input.
+
+## Run locally
+
+Run these commands from the repository root. Python dependencies are listed in `vireo_sla/requirements.txt`.
+
+```powershell
+python -m venv vireo_sla/.venv
+.\vireo_sla\.venv\Scripts\Activate.ps1
+python -m pip install -r vireo_sla/requirements.txt
+python vireo_sla/main.py
+streamlit run vireo_sla/app.py
 ```
 
-The dashboard's core analysis only requires these two files. The other assessment files remain available for notebook-side investigation when needed.
+On macOS or Linux, activate the environment with `source vireo_sla/.venv/bin/activate` instead. The pipeline reads the bundled input pack and regenerates the derived outputs before the dashboard uses them.
 
-## Reproduction
-
-Create and activate a virtual environment, then:
+Run the independent validation and unit tests from the repository root:
 
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+python vireo_sla/tests/validation.py
 ```
 
-Run the notebook separately for the exploratory audit and reasoning trail.
-
-## Current analytical findings
-
-From the supplied assessment dataset:
-
-- 11,816 raw ticket rows
-- 616 duplicated ticket IDs created by migration/re-import
-- 11,200 canonical tickets after deterministic deduplication
-- 2,440 first-response breaches
-- Overall first-response breach rate: **21.79%**
-- Tier-1 Morning resolver breach rate: **32.25%**
-- Tier-1 Day resolver breach rate: **8.54%**
-- Tier-1 Night resolver breach rate: **10.59%**
-- Night-created Tier-1 breach rate: **65.72%**
-- Non-night Tier-1 breach rate: **9.27%**
-- 83.18% of Night-created Tier-1 tickets received their first response during Morning
-- 35.42% of Morning-attributed Tier-1 tickets were created during Night
-
-These are descriptive observations. The export does not contain complete queue/event history, so the results should not be interpreted as proof that a specific handoff or individual caused each breach.
-
-## Financial framing
-
-Vireo's stated operating volume is approximately 650 tickets/week. This is **not** the volume represented by the supplied dataset; it is used only for a scenario projection.
-
-Current projected quarterly SLA-credit exposure:
-
-```text
-650 tickets/week
-× 13 weeks/quarter
-× 21.79% observed breach rate
-× ₹350 credit/breach
-= ₹644,312.50 per quarter
+```bash
+cd vireo_sla
+python -m pytest tests/test_main.py -q
 ```
 
-Observed resolved/closed breached tickets in the supplied dataset: 2,320, corresponding to ₹812,000 of realized SLA credits.
+The exploratory notebook is at `vireo_sla/notebooks/01_vireo_sla_analysis.ipynb`.
 
-A separate benchmark scenario shows that if Night-created Tier-1 tickets performed at the observed non-night Tier-1 breach rate, the supplied sample would contain about 1,235 fewer breaches. This is a counterfactual benchmark, not a forecast, and is not directly annualized to Vireo's 650/week volume because that would require additional assumptions about the Tier-1/night share of current production volume.
+## Validation status
 
-## Validation
+The current generated validation report records zero mismatches in the independent full-population comparison of the computed ticket fields, zero mismatches in its reproducible 32-ticket stratified code audit (8 per channel), and passing SLA boundary checks. This is computational validation against the supplied data; it is **not** a human review of 32 tickets.
 
-The app performs structural checks and an independent recomputation of the deterministic SLA flag.
+## Optional ticket investigator
 
-The notebook should also retain the fixed manual review sample of 8 tickets per channel. The submission should report the manual error rate only after those records have actually been checked.
+The core pipeline and dashboard do not require an API key. To enable the investigator, copy `vireo_sla/env.example` to `vireo_sla/.env` and set `GROQ_API_KEY`; `GROQ_MODEL` is optional. The `.env` file is ignored by Git. The model's response is advisory and is not used in KPI calculations or breach classification.
 
-## AI-assisted investigator
+## Limitations
 
-Set your own API credentials in the environment:
-
-```text
-OPENAI_API_KEY=<your key>
-OPENAI_MODEL=<model available to your account>
-```
-
-The app uses the OpenAI Responses API for the optional ticket investigator. The model receives the selected ticket's structured context and redacted text, and is explicitly instructed not to recalculate or override the deterministic SLA result.
-
-## Known limitations
-
-1. The export attributes breaches to the resolving agent, as specified by policy, but does not provide the full first-response queue event history.
-2. The final ISO week is partial because the export ends 30 June 2026.
-3. The 650 tickets/week figure is a client-stated operating volume, not the sample's observed weekly average.
-4. The AI investigation is advisory; it is not used for the KPI calculations.
-
-
-
-
-----
-
-Vireo Audio — Support SLA Analysis
-
-A reproducible support-operations analysis for Vireo Audio's first-response SLA problem.
-
-What it does
-
-main.py is the processing/orchestration layer. It:
-
-Loads the supplied assessment CSV pack from data/ or data/raw/.
-
-Canonicalizes migration duplicates, preferring the helpdesk copy.
-
-Parses API timestamps as UTC and creates IST views.
-
-Applies Vireo policy SLA targets: chat 15 min, voice 120 min, social 240 min, email 480 min.
-
-Calculates deterministic first-response breaches.
-
-Maps completed tickets to the resolver's effective-dated roster assignment.
-
-Produces weekly, shift, channel, team, agent, hourly and shift-handoff outputs.
-
-Writes all derived CSVs to outputs/.
-
-Generates a fixed 32-ticket manual-validation sample.
-
-Provides an optional Groq ticket investigator; the LLM never determines SLA status.
-
-app.py only renders the Streamlit UI and reads the outputs produced by main.py.
-
-Input data
-
-The five assessment CSVs are source inputs and therefore cannot be generated by the program. Keep the provided pack in either:
-
-data/
-
-or:
-
-data/raw/
-
-The program auto-detects either location.
-
-Do not commit the raw CSVs to a public repository.
-
-Run on a clean machine
-
-python -m venv .venv
-.venv\\Scripts\\activate
-pip install -r requirements.txt
-python main.py
-streamlit run app.py
-
-python main.py is the reproducible pipeline. It creates the outputs/ directory and all derived artifacts automatically.
-
-Optional AI investigator (Groq)
-
-Copy .env.example to .env and fill in GROQ_API_KEY. Optionally set GROQ_MODEL.
-
-Current Groq documentation shows the official Python SDK using from groq import Groq, the GROQ_API_KEY environment variable, and client.chat.completions.create(...). The current supported-model catalogue lists openai/gpt-oss-20b as a production model. Costs vary by model; record the actual usage shown by the API for the submission.
-
-Core analytical decisions
-
-One canonical row per ticket_id; migration duplicates prefer helpdesk.
-
-Missing values are interpreted by business meaning, not globally imputed.
-
-CSAT 0 in legacy rows means no survey response and is excluded from CSAT averages.
-
-SLA uses first human response minus ticket creation.
-
-Breach is response_time > target (exactly at target is not a breach).
-
-Breach attribution follows Vireo's policy: the resolving agent.
-
-Tier 1 is the comparable population for agent/shift accountability; Tier 2 is reported separately.
-
-Resolver shift is determined from the effective roster assignment at resolution.
-
-Night/Morning findings are descriptive operational associations, not causal proof.
-
-The source dataset contains ~11.2k canonical tickets; Vireo's ~650 tickets/week is used only for operating-volume projection.
-
-Reproduction outputs
-
-main.py generates:
-
-ticket_sla.csv
-
-weekly_summary.csv
-
-shift_summary.csv
-
-shift_channel_summary.csv
-
-agent_summary.csv
-
-team_shift_summary.csv
-
-hourly_risk.csv
-
-arrival_summary.csv
-
-arrival_to_response_shift.csv
-
-shift_flow_detail.csv
-
-overall_kpis.csv
-
-business_case.csv
-
-validation_checks.csv
-
-manual_validation_sample.csv
-
-Scope deliberately excluded
-
-No Spark/Databricks, MongoDB, Supabase, Oracle dependency, predictive ML model, encoder-decoder architecture, or deep-learning breach model is required for this dataset and question. These would add infrastructure without improving the core decision in the five-hour assessment window.
+- The export lacks complete queue and handoff event history. Resolver attribution follows policy but is not proof of individual causation.
+- The final ISO reporting week is partial; the export ends on 30 June 2026.
+- The 650-ticket weekly volume is a stated operating assumption used only for the quarterly planning scenario.
+- The Night versus non-night comparison and the estimate of about 1,235 fewer sample breaches if the Night-created Tier-1 rate matched the observed non-night rate are descriptive counterfactuals, not causal effects or forecasts.
